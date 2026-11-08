@@ -754,7 +754,8 @@ Nginx/Caddy 反代到 `127.0.0.1:30031`，SSE 需关闭缓冲；**应用必须�
 > 监听 `0.0.0.0` 等于对所有网卡开放；没有 TLS 时程序会拒绝启动，
 > 除非显式加 `--web-insecure-http`。公网暴露请务必走 TLS + token。
 
-systemd 常驻单元示例见 [docs/WEBUI-DESIGN.md](docs/WEBUI-DESIGN.md) 第 8 节。
+完整的 systemd 单元与 Nginx 双入口（域名 + 私网 IP:端口）部署见
+[docs/deploy.md](docs/deploy.md)，模板在 [contrib/](contrib/)（systemd + Nginx）。
 
 ### 页面功能
 

@@ -1,0 +1,40 @@
+# rbackup-ui Web UI（systemd 系统级单元模板）
+#
+# 用法：
+#   sed -e 's|__USER__|admin|g' -e 's|__GROUP__|users|g' -e 's|__HOME__|/home/admin|g' \
+#       contrib/systemd/rbackup-web.service | sudo tee /etc/systemd/system/rbackup-web.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now rbackup-web
+#
+# 说明：
+#   - 只监听 loopback，对外入口交给 Nginx/Caddy（见 contrib/nginx/ 与 docs/deploy.md）；
+#   - 反代场景必须 --web-trust-proxy；不要固定 --web-public-url，这样域名与
+#     IP:端口两个入口都能生成正确的扫码链接与 Secure cookie；
+#   - 密码/2FA/token 凭据按需保留，文件权限 0600，属主为下方运行用户；
+#   - 本服务不执行挂载，可使用 systemd 基础加固；若托管备份任务遇到权限/挂载
+#     异常，再放宽相关沙箱选项。
+
+[Unit]
+Description=rbackup-ui Web UI (rbackup-web)
+Documentation=https://github.com/lockejet/rbackup-ui
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__GROUP__
+Environment=HOME=__HOME__
+WorkingDirectory=__HOME__
+ExecStart=__HOME__/.local/bin/rbackup-web \
+    --web-addr 127.0.0.1:30031 \
+    --web-trust-proxy \
+    --web-password-hash-file __HOME__/.config/rbackup-ui/web.passwd \
+    --web-2fa totp \
+    --web-totp-secret-file __HOME__/.config/rbackup-ui/web.totp \
+    --web-token-file __HOME__/.config/rbackup-ui/web.token
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
