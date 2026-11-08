@@ -12,7 +12,9 @@ set -euo pipefail
 
 # ---------- 默认值 ----------
 BIN_NAME="rbackup-ui"
-SCRIPT_NAME="rbackup.sh"
+TUI_NAME="rbackup-tui"
+WEB_NAME="rbackup-web"
+SCRIPT_NAME="rbackup-cli"
 REPO="${RBACKUP_REPO:-lockejet/rbackup-ui}"
 VERSION="latest"
 MODE="user"          # user | system
@@ -144,9 +146,12 @@ if [ "$MODE" = "user" ]; then
 else
     DATADIR="$SHAREDIR"
 fi
-MANIFEST="$DATADIR/install-manifest.txt"
-# 改名兼容：旧版 rbackup-tui 的安装清单与配置位置
+# 安装清单与版本放在 share/<app>/install/（运行期数据 backend/ 与之分开）
+METADIR="$DATADIR/install"
+MANIFEST="$METADIR/install-manifest.txt"
+# 改名兼容：旧版 rbackup-tui 布局与 v1 的扁平清单位置
 LEGACY_MANIFEST="${DATADIR%/*}/rbackup-tui/install-manifest.txt"
+LEGACY_MANIFEST_V1="$DATADIR/install-manifest.txt"
 
 # 配置目录：程序用 os.UserConfigDir() 解析（Linux $XDG_CONFIG_HOME 或 ~/.config，
 # Windows %AppData%），这里复刻同一规则，保证安装器写的位置程序读得到。
@@ -303,14 +308,21 @@ resolve_latest() {
 }
 
 read_installed_version() {
-    [ -f "$MANIFEST" ] || return 0
-    sed -n 's/^# version=//p' "$MANIFEST" | head -n1
+    if [ -f "$MANIFEST" ]; then
+        sed -n 's/^# version=//p' "$MANIFEST" | head -n1
+    elif [ -f "$LEGACY_MANIFEST_V1" ]; then
+        sed -n 's/^# version=//p' "$LEGACY_MANIFEST_V1" | head -n1
+    fi
 }
 
 # ---------- 卸载 ----------
 if [ "$DO_UNINSTALL" -eq 1 ]; then
+    if [ ! -f "$MANIFEST" ] && [ -f "$LEGACY_MANIFEST_V1" ]; then
+        warn "未找到新布局清单，检测到 v1 清单，按旧清单卸载"
+        MANIFEST="$LEGACY_MANIFEST_V1"
+    fi
     if [ ! -f "$MANIFEST" ] && [ -f "$LEGACY_MANIFEST" ]; then
-        warn "未找到 $BIN_NAME 清单，检测到改名前的 rbackup-tui 清单，按旧清单卸载"
+        warn "未找到新布局清单，检测到改名前的 rbackup-tui 清单，按旧清单卸载"
         MANIFEST="$LEGACY_MANIFEST"
     fi
     [ -f "$MANIFEST" ] || die "找不到安装清单：$MANIFEST（可能是源码安装，请用 make uninstall）"
@@ -333,7 +345,8 @@ if [ "$DO_UNINSTALL" -eq 1 ]; then
         # 只删空目录；含配置/日志的目录会保留
         rmdir "$BINDIR" 2>/dev/null || true
         rmdir "$DATADIR/examples" 2>/dev/null || true
-        rm -f "$MANIFEST"
+        rm -f "$MANIFEST" "$LEGACY_MANIFEST_V1" "$METADIR/VERSION"
+        rmdir "$METADIR" 2>/dev/null || true
         ok "卸载完成，共移除 $removed 个文件"
         info "配置与日志已保留：${CONFIGDIR:-$HOME/.config/$BIN_NAME}"
     fi
@@ -437,10 +450,12 @@ case "$PKG_PATH" in
     *) die "不认识的包格式: $PKG_PATH" ;;
 esac
 
-SRC_BIN="$(find "$EXTRACT" -type f -name "$BIN_NAME$EXE" | head -n1)"
-[ -n "$SRC_BIN" ] || die "包内找不到 $BIN_NAME$EXE"
-SRC_ROOT="$(dirname "$SRC_BIN")"
-[ -f "$SRC_ROOT/$SCRIPT_NAME" ] || warn "包内没有 $SCRIPT_NAME，仅安装主程序"
+SRC_TUI="$(find "$EXTRACT" -type f -name "$TUI_NAME$EXE" | head -n1)"
+[ -n "$SRC_TUI" ] || die "包内找不到 $TUI_NAME$EXE（v2 起主程序拆分为 $TUI_NAME / $WEB_NAME；旧包请用旧版安装器）"
+SRC_WEB="$(find "$EXTRACT" -type f -name "$WEB_NAME$EXE" | head -n1)"
+SRC_ROOT="$(dirname "$SRC_TUI")"
+SRC_SCRIPT="$SRC_ROOT/$SCRIPT_NAME"
+[ -f "$SRC_SCRIPT" ] || warn "包内没有 $SCRIPT_NAME，仅安装主程序"
 
 # ---------- 安装 ----------
 installed_ver="$(read_installed_version)"
@@ -452,8 +467,10 @@ fi
 
 if [ "$DO_DRY_RUN" -eq 1 ]; then
     info "[dry-run] 安装目录:"
-    info "[dry-run]   $BINDIR/$BIN_NAME$EXE"
+    info "[dry-run]   $BINDIR/$TUI_NAME$EXE"
+    info "[dry-run]   $BINDIR/$WEB_NAME$EXE（与 TUI 共享同一实现的硬链接）"
     info "[dry-run]   $BINDIR/$SCRIPT_NAME"
+    info "[dry-run]   $METADIR/{VERSION,install-manifest.txt}"
     info "[dry-run]   $DATADIR/examples/{config1,config2}.ini.example"
     info "[dry-run]   $DATADIR/{README.md,LICENSE}"
     if [ "$DO_CONFIG" -eq 1 ]; then
@@ -466,11 +483,23 @@ if [ "$DO_DRY_RUN" -eq 1 ]; then
     exit 0
 fi
 
-mkdir -p "$BINDIR" "$DATADIR/examples"
-install -m 0755 "$SRC_BIN" "$BINDIR/$BIN_NAME$EXE"
-[ -f "$SRC_ROOT/$SCRIPT_NAME" ] && install -m 0755 "$SRC_ROOT/$SCRIPT_NAME" "$BINDIR/$SCRIPT_NAME"
+mkdir -p "$BINDIR" "$DATADIR/examples" "$METADIR"
+# 升级/替换：先删旧名（v1 的 rbackup-ui、rbackup.sh）与目标文件，避免残留、
+# 避免 cp 写穿旧的符号链接/硬链接。
+rm -f "$BINDIR/$TUI_NAME$EXE" "$BINDIR/$WEB_NAME$EXE" \
+      "$BINDIR/$BIN_NAME$EXE" "$BINDIR/rbackup.sh" "$LEGACY_MANIFEST_V1"
+install -m 0755 "$SRC_TUI" "$BINDIR/$TUI_NAME$EXE"
+# web 与 tui 是同一实现的两种界面：优先硬链接（同一 inode，磁盘不翻倍）
+if ln -f "$BINDIR/$TUI_NAME$EXE" "$BINDIR/$WEB_NAME$EXE" 2>/dev/null; then
+    :
+elif [ -n "$SRC_WEB" ] && [ -f "$SRC_WEB" ]; then
+    install -m 0755 "$SRC_WEB" "$BINDIR/$WEB_NAME$EXE"
+else
+    cp -f "$BINDIR/$TUI_NAME$EXE" "$BINDIR/$WEB_NAME$EXE"
+fi
+[ -f "$SRC_SCRIPT" ] && install -m 0755 "$SRC_SCRIPT" "$BINDIR/$SCRIPT_NAME"
 
-copied=("$BINDIR/$BIN_NAME$EXE")
+copied=("$BINDIR/$TUI_NAME$EXE" "$BINDIR/$WEB_NAME$EXE")
 [ -f "$BINDIR/$SCRIPT_NAME" ] && copied+=("$BINDIR/$SCRIPT_NAME")
 
 for f in config1.ini.example config2.ini.example; do
@@ -528,12 +557,14 @@ fi
     printf '# date=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     for f in "${copied[@]}"; do printf '%s\n' "$f"; done
 } > "$MANIFEST"
+printf '%s\n' "$VERSION" > "$METADIR/VERSION"
 
 # ---------- 收尾 ----------
 ok "安装完成：$BIN_NAME $VERSION（$MODE 级）"
 printf '\n' >&2
-info "主程序   $BINDIR/$BIN_NAME$EXE"
-info "后端脚本 $BINDIR/$SCRIPT_NAME"
+info "TUI      $BINDIR/$TUI_NAME$EXE"
+info "Web      $BINDIR/$WEB_NAME$EXE"
+info "后端 CLI $BINDIR/$SCRIPT_NAME"
 [ -n "$CONFIG_PATH" ] && info "配置     $CONFIG_PATH"
 info "示例文档 $DATADIR"
 info "清单     $MANIFEST"
@@ -548,5 +579,5 @@ case ":$PATH:" in
         ;;
 esac
 
-info "启动：$BIN_NAME"
+info "启动：$TUI_NAME（终端）或 $WEB_NAME --web-trust-proxy（网页，建议由 systemd 托管）"
 info "卸载：$BIN_NAME 安装器 --uninstall   或重跑 install.sh --uninstall"

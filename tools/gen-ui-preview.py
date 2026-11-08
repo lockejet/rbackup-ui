@@ -65,7 +65,7 @@ ROWS = [
     {"t": "top", "title": "rbackup"},
 
     {"t": "flow", "segs": [
-        ("脚本: ", "label"), ("~/.local/bin/rbackup.sh", "val"),
+        ("脚本: ", "label"), ("~/.local/bin/rbackup-cli", "val"),
         ("   配置: ", "label"), ("~/.config/rbackup-ui/config.ini", "val")]},
     {"t": "flow", "segs": [
         ("远端: ", "label"), ("admin@example.com:22", "val"),

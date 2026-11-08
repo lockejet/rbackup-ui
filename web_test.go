@@ -17,11 +17,11 @@ import (
 
 const testToken = "0123456789abcdef0123456789abcdef"
 
-// writeTestFixture 创建 stub rbackup.sh 与测试配置。
+// writeTestFixture 创建 stub rbackup-cli 与测试配置。
 func writeTestFixture(t *testing.T) (script, config, dir string) {
 	t.Helper()
 	dir = t.TempDir()
-	script = filepath.Join(dir, "rbackup.sh")
+	script = filepath.Join(dir, "rbackup-cli")
 	body := `#!/bin/bash
 cfg=""; task=""; dry=0; mount=0
 while [ $# -gt 0 ]; do

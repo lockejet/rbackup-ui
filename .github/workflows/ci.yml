@@ -28,7 +28,7 @@ jobs:
         run: go test -v ./...
 
       - name: 构建当前平台
-        run: go build -ldflags "-X main.Version=ci" -o /tmp/rbackup-ui .
+        run: go build -ldflags "-X main.Version=ci" -o /tmp/rbackup-tui .
 
       - name: 前端 JS 语法检查
         run: node --check web/app.js
@@ -39,7 +39,7 @@ jobs:
           mkdir -p /tmp/rb-ci
           for target in linux/amd64 linux/arm64 windows/amd64; do
             os="${target%/*}"; arch="${target#*/}"
-            out="/tmp/rb-ci/rbackup-ui-${os}-${arch}"
+            out="/tmp/rb-ci/rbackup-tui-${os}-${arch}"
             [ "$os" = "windows" ] && out="${out}.exe"
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -ldflags "-X main.Version=ci" -o "$out" .
             echo "✓ $out"
@@ -66,7 +66,10 @@ jobs:
           cache: true
 
       - name: 构建
-        run: go build -ldflags "-X main.Version=ci" -o rbackup-ui.exe .
+        run: |
+          go build -ldflags "-X main.Version=ci" -o rbackup-tui.exe .
+          Copy-Item rbackup-tui.exe rbackup-web.exe
+        shell: pwsh
 
       - name: 单元测试
         run: go test ./...
@@ -74,9 +77,10 @@ jobs:
       - name: 诊断与 Web 冒烟
         shell: pwsh
         run: |
-          .\rbackup-ui.exe --help
-          .\rbackup-ui.exe --doctor
-          $proc = Start-Process -FilePath .\rbackup-ui.exe -ArgumentList @("--web", "--web-addr", "127.0.0.1:30099") -PassThru
+          .\rbackup-tui.exe --help
+          .\rbackup-tui.exe --doctor
+          .\rbackup-web.exe --help
+          $proc = Start-Process -FilePath .\rbackup-web.exe -ArgumentList @("--web-addr", "127.0.0.1:30099") -PassThru
           try {
             $ok = $false
             for ($i = 0; $i -lt 40; $i++) {
@@ -123,28 +127,28 @@ jobs:
       - name: 语法检查（bash -n）
         run: |
           set -euo pipefail
-          for f in rbackup.sh install.sh \
+          for f in rbackup-cli install.sh \
                    integrations/lazyrsync/rbackup-gate.sh \
                    integrations/lazyrsync/test-gate.sh; do
             bash -n "$f"
             echo "✓ bash -n $f"
           done
 
-      - name: rbackup.sh 参数冒烟（--help / --print-log-dir）
+      - name: rbackup-cli 参数冒烟（--help / --print-log-dir）
         run: |
           set -euo pipefail
           # --help 必须可用且退出码为 0（曾因 set -u + heredoc 展开崩溃）
-          ./rbackup.sh --help >/dev/null
+          ./rbackup-cli --help >/dev/null
           echo "✓ --help 可用"
 
           # 日志目录必须遵循 XDG_STATE_HOME
-          dir="$(XDG_STATE_HOME=/tmp/xdg-state ./rbackup.sh --print-log-dir)"
+          dir="$(XDG_STATE_HOME=/tmp/xdg-state ./rbackup-cli --print-log-dir)"
           test "$dir" = "/tmp/xdg-state/rbackup-ui/log" \
             || { echo "✗ XDG 日志目录不符: $dir"; exit 1; }
           echo "✓ XDG 日志目录: $dir"
 
           # XDG_STATE_HOME 未设置时回退到 ~/.local/state
-          dir="$(env -u XDG_STATE_HOME HOME=/tmp/fake-home ./rbackup.sh --print-log-dir)"
+          dir="$(env -u XDG_STATE_HOME HOME=/tmp/fake-home ./rbackup-cli --print-log-dir)"
           test "$dir" = "/tmp/fake-home/.local/state/rbackup-ui/log" \
             || { echo "✗ XDG 回退目录不符: $dir"; exit 1; }
           echo "✓ XDG 回退目录: $dir"
@@ -154,8 +158,8 @@ jobs:
 
       - name: shellcheck 存量脚本（仅提示）
         run: |
-          if ! shellcheck rbackup.sh; then
-            echo "::warning::rbackup.sh 存在 shellcheck 提示（不阻塞构建）"
+          if ! shellcheck rbackup-cli; then
+            echo "::warning::rbackup-cli 存在 shellcheck 提示（不阻塞构建）"
           fi
 
       - name: 安装器行为自测

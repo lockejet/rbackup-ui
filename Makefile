@@ -3,6 +3,8 @@
 # ============================================================
 
 BIN        := rbackup-ui
+TUI        := rbackup-tui
+WEB        := rbackup-web
 BUILD_DIR  := bin
 DIST_DIR   := dist
 STAGE_DIR  := .staging
@@ -12,7 +14,7 @@ PREFIX     ?= $(HOME)/.local
 BINDIR     ?= $(PREFIX)/bin
 
 # ---------- 打包源文件 ----------
-SCRIPT_FILE  := rbackup.sh
+SCRIPT_FILE  := rbackup-cli
 CONFIG_FILES := config1.ini.example config2.ini.example
 DOC_FILES    := README.md LICENSE
 
@@ -36,7 +38,7 @@ else
     SUFFIX := .exe
 endif
 
-TARGET := $(BUILD_DIR)/$(GOOS)/$(BIN)$(SUFFIX)
+TARGET := $(BUILD_DIR)/$(GOOS)/$(TUI)$(SUFFIX)
 
 # ---------- 发布 ----------
 REPO ?= $(shell git remote get-url origin 2>/dev/null | head -n1 | \
@@ -66,19 +68,19 @@ build: require-go
 build-win:
 	@mkdir -p $(BUILD_DIR)/windows
 	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" \
-	    -o $(BUILD_DIR)/windows/$(BIN).exe .
+	    -o $(BUILD_DIR)/windows/$(TUI).exe .
 
 .PHONY: build-linux
 build-linux:
 	@mkdir -p $(BUILD_DIR)/linux
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" \
-	    -o $(BUILD_DIR)/linux/$(BIN) .
+	    -o $(BUILD_DIR)/linux/$(TUI) .
 
 .PHONY: build-linux-arm64
 build-linux-arm64:
 	@mkdir -p $(BUILD_DIR)/linux
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" \
-	    -o $(BUILD_DIR)/linux/$(BIN)-arm64 .
+	    -o $(BUILD_DIR)/linux/$(TUI)-arm64 .
 
 .PHONY: build-all
 build-all: build-win build-linux build-linux-arm64
@@ -97,14 +99,17 @@ package-linux: build-linux
 	@rm -f $(DIST_DIR)/$(BIN)-*-linux-amd64.tar.gz
 	@rm -rf $(STAGE_DIR)/$(BIN)-linux-amd64
 	@mkdir -p $(STAGE_DIR)/$(BIN)-linux-amd64 $(DIST_DIR)
-	@cp bin/linux/$(BIN) $(STAGE_DIR)/$(BIN)-linux-amd64/
+	@cp bin/linux/$(TUI) $(STAGE_DIR)/$(BIN)-linux-amd64/
+	@ln $(STAGE_DIR)/$(BIN)-linux-amd64/$(TUI) $(STAGE_DIR)/$(BIN)-linux-amd64/$(WEB) 2>/dev/null || \
+	    cp $(STAGE_DIR)/$(BIN)-linux-amd64/$(TUI) $(STAGE_DIR)/$(BIN)-linux-amd64/$(WEB)
 	@cp $(SCRIPT_FILE) $(STAGE_DIR)/$(BIN)-linux-amd64/
 	@cp $(CONFIG_FILES) $(STAGE_DIR)/$(BIN)-linux-amd64/
 	@cp $(DOC_FILES) $(STAGE_DIR)/$(BIN)-linux-amd64/
 	@mkdir -p $(STAGE_DIR)/$(BIN)-linux-amd64/docs/images
 	@cp docs/images/ui-overview.svg $(STAGE_DIR)/$(BIN)-linux-amd64/docs/images/
-	@chmod +x $(STAGE_DIR)/$(BIN)-linux-amd64/$(BIN)
-	@chmod +x $(STAGE_DIR)/$(BIN)-linux-amd64/$(SCRIPT_FILE)
+	@chmod +x $(STAGE_DIR)/$(BIN)-linux-amd64/$(TUI) \
+	    $(STAGE_DIR)/$(BIN)-linux-amd64/$(WEB) \
+	    $(STAGE_DIR)/$(BIN)-linux-amd64/$(SCRIPT_FILE)
 	@tar czf $(DIST_DIR)/$(PKG_NAME)-linux-amd64.tar.gz -C $(STAGE_DIR) $(BIN)-linux-amd64
 	@echo ">>> $(DIST_DIR)/$(PKG_NAME)-linux-amd64.tar.gz"
 
@@ -112,14 +117,17 @@ package-linux-arm64: build-linux-arm64
 	@rm -f $(DIST_DIR)/$(BIN)-*-linux-arm64.tar.gz
 	@rm -rf $(STAGE_DIR)/$(BIN)-linux-arm64
 	@mkdir -p $(STAGE_DIR)/$(BIN)-linux-arm64 $(DIST_DIR)
-	@cp bin/linux/$(BIN)-arm64 $(STAGE_DIR)/$(BIN)-linux-arm64/$(BIN)
+	@cp bin/linux/$(TUI)-arm64 $(STAGE_DIR)/$(BIN)-linux-arm64/$(TUI)
+	@ln $(STAGE_DIR)/$(BIN)-linux-arm64/$(TUI) $(STAGE_DIR)/$(BIN)-linux-arm64/$(WEB) 2>/dev/null || \
+	    cp $(STAGE_DIR)/$(BIN)-linux-arm64/$(TUI) $(STAGE_DIR)/$(BIN)-linux-arm64/$(WEB)
 	@cp $(SCRIPT_FILE) $(STAGE_DIR)/$(BIN)-linux-arm64/
 	@cp $(CONFIG_FILES) $(STAGE_DIR)/$(BIN)-linux-arm64/
 	@cp $(DOC_FILES) $(STAGE_DIR)/$(BIN)-linux-arm64/
 	@mkdir -p $(STAGE_DIR)/$(BIN)-linux-arm64/docs/images
 	@cp docs/images/ui-overview.svg $(STAGE_DIR)/$(BIN)-linux-arm64/docs/images/
-	@chmod +x $(STAGE_DIR)/$(BIN)-linux-arm64/$(BIN)
-	@chmod +x $(STAGE_DIR)/$(BIN)-linux-arm64/$(SCRIPT_FILE)
+	@chmod +x $(STAGE_DIR)/$(BIN)-linux-arm64/$(TUI) \
+	    $(STAGE_DIR)/$(BIN)-linux-arm64/$(WEB) \
+	    $(STAGE_DIR)/$(BIN)-linux-arm64/$(SCRIPT_FILE)
 	@tar czf $(DIST_DIR)/$(PKG_NAME)-linux-arm64.tar.gz -C $(STAGE_DIR) $(BIN)-linux-arm64
 	@echo ">>> $(DIST_DIR)/$(PKG_NAME)-linux-arm64.tar.gz"
 
@@ -127,7 +135,8 @@ package-win: build-win
 	@rm -f $(DIST_DIR)/$(BIN)-*-windows-amd64.zip
 	@rm -rf $(STAGE_DIR)/$(BIN)-windows-amd64
 	@mkdir -p $(STAGE_DIR)/$(BIN)-windows-amd64 $(DIST_DIR)
-	@cp bin/windows/$(BIN).exe $(STAGE_DIR)/$(BIN)-windows-amd64/
+	@cp bin/windows/$(TUI).exe $(STAGE_DIR)/$(BIN)-windows-amd64/
+	@cp $(STAGE_DIR)/$(BIN)-windows-amd64/$(TUI).exe $(STAGE_DIR)/$(BIN)-windows-amd64/$(WEB).exe
 	@cp $(SCRIPT_FILE) $(STAGE_DIR)/$(BIN)-windows-amd64/
 	@cp $(CONFIG_FILES) $(STAGE_DIR)/$(BIN)-windows-amd64/
 	@cp $(DOC_FILES) $(STAGE_DIR)/$(BIN)-windows-amd64/
@@ -319,7 +328,11 @@ require-go:
 .PHONY: install-files
 install-files:
 	$(SUDO) install -d "$(DESTDIR)$(BINDIR)"
-	$(SUDO) install -m 0755 "$(TARGET)" "$(DESTDIR)$(BINDIR)/$(BIN)$(SUFFIX)"
+	$(SUDO) rm -f "$(DESTDIR)$(BINDIR)/$(TUI)$(SUFFIX)" "$(DESTDIR)$(BINDIR)/$(WEB)$(SUFFIX)" \
+	              "$(DESTDIR)$(BINDIR)/$(BIN)$(SUFFIX)" "$(DESTDIR)$(BINDIR)/rbackup.sh"
+	$(SUDO) install -m 0755 "$(TARGET)" "$(DESTDIR)$(BINDIR)/$(TUI)$(SUFFIX)"
+	$(SUDO) ln -f "$(DESTDIR)$(BINDIR)/$(TUI)$(SUFFIX)" "$(DESTDIR)$(BINDIR)/$(WEB)$(SUFFIX)" 2>/dev/null || \
+	    $(SUDO) cp -f "$(DESTDIR)$(BINDIR)/$(TUI)$(SUFFIX)" "$(DESTDIR)$(BINDIR)/$(WEB)$(SUFFIX)"
 	@if [ -f "$(SCRIPT_FILE)" ]; then \
 		$(SUDO) install -m 0755 "$(SCRIPT_FILE)" "$(DESTDIR)$(BINDIR)/$(SCRIPT_FILE)"; \
 	fi
@@ -327,7 +340,7 @@ install-files:
 # ---------- 手动模式：源码 + Go ----------
 .PHONY: install install-user
 install install-user: build install-files
-	@echo ">>> 安装完成（用户级）: $(DESTDIR)$(BINDIR)/$(BIN)$(SUFFIX)"
+	@echo ">>> 安装完成（用户级）: $(DESTDIR)$(BINDIR)/$(TUI)$(SUFFIX) / $(WEB)$(SUFFIX) / $(SCRIPT_FILE)"
 	@echo ">>> 配置目录: $(HOME)/rbackup-ui/"
 
 .PHONY: install-system
@@ -362,9 +375,9 @@ install-lazy:
 
 .PHONY: uninstall
 uninstall:
-	@user_manifest="$(HOME)/.local/share/$(BIN)/install-manifest.txt"; \
-	sys_manifest="/usr/local/share/$(BIN)/install-manifest.txt"; \
-	legacy_manifest="$(HOME)/rbackup-ui/install-manifest.txt"; \
+	@user_manifest="$(HOME)/.local/share/$(BIN)/install/install-manifest.txt"; \
+	sys_manifest="/usr/local/share/$(BIN)/install/install-manifest.txt"; \
+	legacy_manifest="$(HOME)/.local/share/$(BIN)/install-manifest.txt"; \
 	if [ -f "$$sys_manifest" ] && [ "$$(id -u)" -eq 0 ]; then \
 		echo ">>> 卸载系统级安装（按安装清单）"; \
 		bash ./install.sh --system --uninstall; \
@@ -381,8 +394,10 @@ uninstall:
 		echo ">>> 完成"; \
 	else \
 		echo ">>> 卸载手动安装的文件（保留配置目录）"; \
-		rm -f "$(DESTDIR)$(BINDIR)/$(BIN)$(SUFFIX)" \
-		      "$(DESTDIR)$(BINDIR)/$(BIN)" \
+		rm -f "$(DESTDIR)$(BINDIR)/$(TUI)$(SUFFIX)" \
+		      "$(DESTDIR)$(BINDIR)/$(WEB)$(SUFFIX)" \
+		      "$(DESTDIR)$(BINDIR)/$(BIN)$(SUFFIX)" \
+		      "$(DESTDIR)$(BINDIR)/rbackup.sh" \
 		      "$(DESTDIR)$(BINDIR)/$(SCRIPT_FILE)"; \
 		echo ">>> 完成"; \
 	fi

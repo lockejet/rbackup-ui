@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 门禁包装器自测：用桩 rsync / 桩 ssh 验证判定逻辑，无需真实远程主机。
-# 语义与 rbackup.sh 的 remote_mount_check2 一致：
+# 语义与 rbackup-cli 的 remote_mount_check2 一致：
 #   require_mount      = 该路径“本身就是挂载点”，且 fstype 匹配（gocryptfs 明文视图）
 #   require_unmounted  = 该路径“本身不是挂载点”（直接同步密文目录时用）
 set -uo pipefail

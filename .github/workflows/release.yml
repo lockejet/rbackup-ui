@@ -52,10 +52,13 @@ jobs:
           mkdir -p /tmp/smoke
           tar xzf dist/rbackup-ui-"$TAG"-linux-amd64.tar.gz -C /tmp/smoke
           dir="$(find /tmp/smoke -maxdepth 1 -type d -name 'rbackup-ui-*' | head -n1)"
-          test -x "$dir/rbackup-ui"
-          test -x "$dir/rbackup.sh"
+          test -x "$dir/rbackup-tui"
+          test -x "$dir/rbackup-web"
+          test -x "$dir/rbackup-cli"
           test -f "$dir/config1.ini.example"
-          "$dir/rbackup.sh" --help >/dev/null
+          # tui/web 应为同一 inode（硬链接），避免包体翻倍
+          test "$(stat -c %i "$dir/rbackup-tui")" = "$(stat -c %i "$dir/rbackup-web")"
+          "$dir/rbackup-cli" --help >/dev/null
           echo "冒烟测试通过：$dir"
 
       - name: 校验和复核

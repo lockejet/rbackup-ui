@@ -55,6 +55,8 @@ type webOptions struct {
 	TLSCert      string
 	TLSKey       string
 	InsecureHTTP bool
+	TrustProxy   bool   // 反向代理后信任 X-Forwarded-*（代理须自行设置/覆盖这些头）
+	PublicURL    string // 对外基址（可选；未设置时按请求头/Host 推导，适配多入口）
 	AuditLog     string
 	MaxClients   int
 	ReadOnly     bool
@@ -186,6 +188,21 @@ func (o *webOptions) validate() error {
 			return errors.New("监听非 loopback 地址必须启用 TLS（--web-tls-cert/--web-tls-key），" +
 				"或显式加 --web-insecure-http（仅限隔离内网/VPN），已拒绝启动")
 		}
+	}
+	if o.PublicURL != "" {
+		u, err := url.Parse(o.PublicURL)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			return fmt.Errorf("--web-public-url 不是有效的 URL: %q", o.PublicURL)
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "http", "https":
+		default:
+			return fmt.Errorf("--web-public-url 只支持 http/https，得到 %q", u.Scheme)
+		}
+		if u.Path != "" && u.Path != "/" {
+			return fmt.Errorf("--web-public-url 不应包含路径: %q", o.PublicURL)
+		}
+		o.PublicURL = strings.TrimRight(o.PublicURL, "/")
 	}
 	if o.SessionTTL <= 0 {
 		o.SessionTTL = 8 * time.Hour
@@ -1026,7 +1043,7 @@ func (s *webServer) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 // csrf 用于写操作：同源校验 + 会话 CSRF 头校验。
 func (s *webServer) csrf(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !sameOrigin(r) {
+		if !s.sameOrigin(r) {
 			jsonErr(w, http.StatusForbidden, "csrf", "请求来源不被允许")
 			return
 		}
@@ -1040,10 +1057,80 @@ func (s *webServer) csrf(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func sameOrigin(r *http.Request) bool {
+// firstHeaderValue 取逗号分隔头部的第一个值（多级代理时最左/最外层）。
+func firstHeaderValue(v string) string {
+	if v == "" {
+		return ""
+	}
+	if i := strings.IndexByte(v, ','); i >= 0 {
+		v = v[:i]
+	}
+	return strings.TrimSpace(v)
+}
+
+// requestScheme 返回客户端实际使用的协议：信任代理时读 X-Forwarded-Proto，
+// 否则以本地 TLS 状态为准。
+func (s *webServer) requestScheme(r *http.Request) string {
+	if s.opts.TrustProxy {
+		if p := strings.ToLower(firstHeaderValue(r.Header.Get("X-Forwarded-Proto"))); p != "" {
+			if p == "http" || p == "https" {
+				return p
+			}
+		}
+	}
+	if r.TLS != nil {
+		return "https"
+	}
+	return "http"
+}
+
+// effectiveHost 返回客户端看到的主机名：信任代理时优先 X-Forwarded-Host。
+func (s *webServer) effectiveHost(r *http.Request) string {
+	if s.opts.TrustProxy {
+		if h := firstHeaderValue(r.Header.Get("X-Forwarded-Host")); h != "" {
+			return h
+		}
+	}
+	return r.Host
+}
+
+// publicBase 返回对外基址（scheme://host），优先 --web-public-url。
+func (s *webServer) publicBase(r *http.Request) string {
+	if s.opts.PublicURL != "" {
+		return s.opts.PublicURL
+	}
+	return s.requestScheme(r) + "://" + s.effectiveHost(r)
+}
+
+// requestIsSecure 判断客户端到本服务的连接是否 HTTPS（用于 cookie Secure）。
+func (s *webServer) requestIsSecure(r *http.Request) bool {
+	if s.opts.PublicURL != "" {
+		return strings.HasPrefix(strings.ToLower(s.opts.PublicURL), "https://")
+	}
+	return s.requestScheme(r) == "https"
+}
+
+// sameOrigin 做同源校验：Origin 必须与当前入口（或 --web-public-url）一致。
+func (s *webServer) sameOrigin(r *http.Request) bool {
 	if o := r.Header.Get("Origin"); o != "" {
 		u, err := url.Parse(o)
-		if err != nil || !strings.EqualFold(u.Host, r.Host) {
+		if err != nil || u.Host == "" {
+			return false
+		}
+		allowed := []string{s.effectiveHost(r)}
+		if s.opts.PublicURL != "" {
+			if pu, err := url.Parse(s.opts.PublicURL); err == nil && pu.Host != "" {
+				allowed = append(allowed, pu.Host)
+			}
+		}
+		ok := false
+		for _, h := range allowed {
+			if strings.EqualFold(u.Host, h) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
 			return false
 		}
 	}
@@ -1053,7 +1140,16 @@ func sameOrigin(r *http.Request) bool {
 	return true
 }
 
-func clientIP(r *http.Request) string {
+// clientIP 返回客户端 IP：信任代理时优先 X-Forwarded-For 最左值，其次 X-Real-IP。
+func (s *webServer) clientIP(r *http.Request) string {
+	if s.opts.TrustProxy {
+		if ip := firstHeaderValue(r.Header.Get("X-Forwarded-For")); ip != "" {
+			return ip
+		}
+		if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
+			return ip
+		}
+	}
 	if ho, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
 		return ho
 	}
@@ -1152,10 +1248,10 @@ func (s *webServer) issueSession(w http.ResponseWriter, r *http.Request) session
 		Path:     "/api",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   r.TLS != nil,
+		Secure:   s.requestIsSecure(r),
 		MaxAge:   int(s.opts.SessionTTL.Seconds()),
 	})
-	s.audit.log("session.open", clientIP(r), r.UserAgent(), map[string]any{"twofa": s.creds().totpEnabled})
+	s.audit.log("session.open", s.clientIP(r), r.UserAgent(), map[string]any{"twofa": s.creds().totpEnabled})
 	return sessionResp{CSRF: csrf, Version: Version, ReadOnly: s.opts.ReadOnly, TokenFree: s.tokenFree()}
 }
 
@@ -1166,7 +1262,7 @@ func (s *webServer) setPendingCookie(w http.ResponseWriter, r *http.Request, id 
 		Path:     "/api",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   r.TLS != nil,
+		Secure:   s.requestIsSecure(r),
 		MaxAge:   int(pending2FATTL.Seconds()),
 	})
 }
@@ -1190,8 +1286,8 @@ func (s *webServer) handleAuthInfo(w http.ResponseWriter, r *http.Request) {
 func (s *webServer) handleSession(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		ip := clientIP(r)
-		if !sameOrigin(r) {
+		ip := s.clientIP(r)
+		if !s.sameOrigin(r) {
 			jsonErr(w, http.StatusForbidden, "csrf", "请求来源不被允许")
 			return
 		}
@@ -1251,7 +1347,7 @@ func (s *webServer) handleSession(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		http.SetCookie(w, &http.Cookie{Name: webSessionCookie, Value: "", Path: "/api", MaxAge: -1, HttpOnly: true})
 		http.SetCookie(w, &http.Cookie{Name: webPendingCookie, Value: "", Path: "/api", MaxAge: -1, HttpOnly: true})
-		s.audit.log("session.close", clientIP(r), r.UserAgent(), nil)
+		s.audit.log("session.close", s.clientIP(r), r.UserAgent(), nil)
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.Header().Set("Allow", "POST, DELETE")
@@ -1266,7 +1362,7 @@ func (s *webServer) handleTOTP(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusMethodNotAllowed, "method", "不支持的方法")
 		return
 	}
-	if !sameOrigin(r) {
+	if !s.sameOrigin(r) {
 		jsonErr(w, http.StatusForbidden, "csrf", "请求来源不被允许")
 		return
 	}
@@ -1274,7 +1370,7 @@ func (s *webServer) handleTOTP(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "2fa_disabled", "未启用二次验证")
 		return
 	}
-	ip := clientIP(r)
+	ip := s.clientIP(r)
 	if !s.limiter.allow(ip) {
 		s.audit.log("totp.rate_limited", ip, r.UserAgent(), nil)
 		jsonErr(w, http.StatusTooManyRequests, "rate_limited", "尝试过于频繁，请稍后再试")
@@ -1398,7 +1494,7 @@ func (s *webServer) handleJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.opts.ReadOnly {
-		s.audit.log("job.reject_readonly", clientIP(r), r.UserAgent(), nil)
+		s.audit.log("job.reject_readonly", s.clientIP(r), r.UserAgent(), nil)
 		jsonErr(w, http.StatusForbidden, "read_only", "当前为只读模式，不能触发任务")
 		return
 	}
@@ -1448,7 +1544,7 @@ func (s *webServer) handleJobs(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, "internal", "启动任务失败")
 		return
 	}
-	s.audit.log("job.start", clientIP(r), r.UserAgent(), map[string]any{
+	s.audit.log("job.start", s.clientIP(r), r.UserAgent(), map[string]any{
 		"kind": string(kind), "tasks": names, "dryRun": req.DryRun,
 	})
 	jsonWrite(w, http.StatusAccepted, map[string]any{"job": snap})
@@ -1503,7 +1599,7 @@ func (s *webServer) handleCancel(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusConflict, "no_job", "当前没有正在运行的任务")
 		return
 	}
-	s.audit.log("job.cancel", clientIP(r), r.UserAgent(), map[string]any{"jobId": snap.ID})
+	s.audit.log("job.cancel", s.clientIP(r), r.UserAgent(), map[string]any{"jobId": snap.ID})
 	jsonWrite(w, http.StatusOK, map[string]any{"job": snap})
 }
 
@@ -1538,7 +1634,7 @@ func (s *webServer) handleMountCheck(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, "internal", "启动挂载检查失败")
 		return
 	}
-	s.audit.log("mountcheck.start", clientIP(r), r.UserAgent(), nil)
+	s.audit.log("mountcheck.start", s.clientIP(r), r.UserAgent(), nil)
 	jsonWrite(w, http.StatusAccepted, map[string]any{"job": snap})
 }
 
@@ -1594,8 +1690,8 @@ func (s *webServer) handleStatic(w http.ResponseWriter, r *http.Request) {
 // runWebCLI 由 main 在 --web 模式下调用，返回进程退出码。
 func runWebCLI(scriptPath, configPath string, o webOptions) int {
 	if scriptPath == "" {
-		fmt.Fprintln(os.Stderr, "错误：找不到 rbackup.sh（Web 模式同样需要）")
-		fmt.Fprintln(os.Stderr, "用 -s /path/to/rbackup.sh 或 RBACKUP_SCRIPT 指定")
+		fmt.Fprintln(os.Stderr, "错误：找不到 rbackup-cli（Web 模式同样需要）")
+		fmt.Fprintln(os.Stderr, "用 -s /path/to/rbackup-cli 或 RBACKUP_SCRIPT 指定")
 		return 1
 	}
 	s, err := newWebServer(o, scriptPath, configPath)
@@ -1631,7 +1727,15 @@ func (s *webServer) serve() error {
 	if host == "" {
 		host = "0.0.0.0"
 	}
-	fmt.Fprintf(os.Stderr, "rbackup-ui web UI: %s://%s:%s  (配置: %s)\n", scheme, host, port, s.configPath)
+	fmt.Fprintf(os.Stderr, "rbackup-web: %s://%s:%s  (配置: %s)\n", scheme, host, port, s.configPath)
+	if s.opts.TrustProxy {
+		fmt.Fprintln(os.Stderr, "反向代理: 已信任 X-Forwarded-Proto/Host/For（代理须覆盖这些头，勿透传客户端伪造值）")
+	}
+	if s.opts.PublicURL != "" {
+		fmt.Fprintf(os.Stderr, "对外地址: %s\n", s.opts.PublicURL)
+	} else if s.opts.TrustProxy {
+		fmt.Fprintln(os.Stderr, "对外地址: 按每个请求的 X-Forwarded-Proto/Host 自适应（域名与 IP:端口入口均可）")
+	}
 	cred := s.creds()
 	switch {
 	case cred.totpEnabled:

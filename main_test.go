@@ -63,7 +63,7 @@ func TestAppLogDirUnixFallback(t *testing.T) {
 	}
 }
 
-// TestDefaultLogDir 验证默认日志目录与 appLogDir 一致（TUI 与 rbackup.sh 的约定）。
+// TestDefaultLogDir 验证默认日志目录与 appLogDir 一致（TUI 与 rbackup-cli 的约定）。
 func TestDefaultLogDir(t *testing.T) {
 	got := defaultLogDir()
 	if !strings.Contains(got, "rbackup-ui") {
@@ -104,11 +104,11 @@ func TestResolveLogDirIgnoresEmptyConfig(t *testing.T) {
 
 func TestToMSYSPath(t *testing.T) {
 	cases := map[string]string{
-		`C:\Users\admin\rbackup.sh`: "/c/Users/admin/rbackup.sh",
-		`D:\a b\c.ini`:              "/d/a b/c.ini",
-		`/already/posix`:            "/already/posix",
-		`\\server\share\x`:          `\\server\share\x`,
-		``:                          ``,
+		`C:\Users\admin\rbackup-cli`: "/c/Users/admin/rbackup-cli",
+		`D:\a b\c.ini`:               "/d/a b/c.ini",
+		`/already/posix`:             "/already/posix",
+		`\\server\share\x`:           `\\server\share\x`,
+		``:                           ``,
 	}
 	for in, want := range cases {
 		if got := toMSYSPath(in); got != want {

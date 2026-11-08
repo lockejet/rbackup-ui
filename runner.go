@@ -33,7 +33,7 @@ type TaskResult struct {
 	Stats    *TaskStats
 }
 
-// 解析 rbackup.sh 输出的 [STATS] 行
+// 解析 rbackup-cli 输出的 [STATS] 行
 func parseStatsLine(line string) *TaskStats {
 	if !strings.HasPrefix(line, "[STATS] ") {
 		return nil

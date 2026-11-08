@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
 	"os/exec"
@@ -240,6 +241,77 @@ type App struct {
 
 // ---------- 路径查找 ----------
 
+// ---------- 内嵌 CLI（单文件 bash 后端） ----------
+
+// rbackup-cli 是单文件自包含的备份引擎（bash）。随二进制内嵌，首次运行时释放到
+// <数据目录>/rbackup-ui/backend/，保证 UI 与引擎版本始终配套，且不受 PATH 中
+// 旧版脚本影响；RBACKUP_SCRIPT 仍可覆盖（自定义/调试）。
+//
+//go:embed rbackup-cli
+var embeddedCLI []byte
+
+// xdgDataDir 返回数据目录（与安装器/脚本保持同一规则）。
+func xdgDataDir() string {
+	if d := os.Getenv("XDG_DATA_HOME"); d != "" && filepath.IsAbs(d) {
+		return d
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "share")
+}
+
+// backendDir 是内嵌 CLI 的释放目录。
+func backendDir() string {
+	return filepath.Join(xdgDataDir(), "rbackup-ui", "backend")
+}
+
+// extractEmbeddedCLI 把内嵌的 rbackup-cli 释放到 backendDir（内容变化时才重写），
+// 返回释放后的路径。失败时返回错误，调用方继续尝试 PATH。
+func extractEmbeddedCLI() (string, error) {
+	dir := backendDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	cli := filepath.Join(dir, "rbackup-cli")
+	want := string(embeddedCLI)
+	cur, err := os.ReadFile(cli)
+	if err != nil || string(cur) != want {
+		tmp := cli + ".tmp"
+		if err := os.WriteFile(tmp, embeddedCLI, 0o755); err != nil {
+			return "", err
+		}
+		if err := os.Rename(tmp, cli); err != nil {
+			return "", err
+		}
+	}
+	// VERSION：便于排查引擎与 UI 的版本是否配套
+	if Version != "" && Version != "dev" {
+		verFile := filepath.Join(dir, "VERSION")
+		if cur, err := os.ReadFile(verFile); err != nil || strings.TrimSpace(string(cur)) != Version {
+			_ = os.WriteFile(verFile, []byte(Version+"\n"), 0o644)
+		}
+	}
+	return cli, nil
+}
+
+// detectMode 根据可执行文件名判断界面模式（硬链接/改名分发，BusyBox 风格）：
+// rbackup-tui → tui；rbackup-web → web；其它名称默认 tui。
+func detectMode(exeName string) string {
+	base := strings.ToLower(filepath.Base(exeName))
+	base = strings.TrimSuffix(base, ".exe")
+	if strings.HasSuffix(base, "-web") {
+		return "web"
+	}
+	return "tui"
+}
+
+// executableName 返回本次被调用的可执行文件名（/proc/self/exe 或 argv[0]）。
+func executableName() string {
+	if exe, err := os.Executable(); err == nil && exe != "" {
+		return exe
+	}
+	return os.Args[0]
+}
+
 // xdgConfigDir 返回用户配置根目录：Linux 为 $XDG_CONFIG_HOME 或 ~/.config，
 // Windows 为 %AppData%，macOS 为 ~/Library/Application Support。
 func xdgConfigDir() string {
@@ -259,8 +331,8 @@ func xdgStateDir() string {
 	return filepath.Join(home, ".local", "state")
 }
 
-// appLogDir 返回应用日志目录，与 rbackup.sh 的 app_log_dir 保持一致，
-// 否则 TUI 找不到 rbackup.sh 写出的 .stats：
+// appLogDir 返回应用日志目录，与 rbackup-cli 的 app_log_dir 保持一致，
+// 否则 TUI 找不到 rbackup-cli 写出的 .stats：
 //
 //	Windows: %LOCALAPPDATA%\rbackup-ui\Logs
 //	其他:    ${XDG_STATE_HOME:-~/.local/state}/rbackup-ui/log
@@ -292,36 +364,17 @@ func defaultLogDir() string {
 	return appLogDir(runtime.GOOS)
 }
 
+// findScriptPath 解析备份引擎（rbackup-cli）路径，优先级：
+//
+//	RBACKUP_SCRIPT（显式指定）> 内嵌释放的副本 > PATH 中的 rbackup-cli
 func findScriptPath() string {
 	if p := os.Getenv("RBACKUP_SCRIPT"); p != "" {
 		return p
 	}
-	if exe, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exe)
-		for _, name := range []string{"rbackup.sh", "rbackup"} {
-			p := filepath.Join(exeDir, name)
-			if _, err := os.Stat(p); err == nil {
-				return p
-			}
-		}
-	}
-	home, _ := os.UserHomeDir()
-	candidates := []string{
-		filepath.Join(home, "rbackup-ui", "rbackup.sh"),
-		filepath.Join(home, "rbackup-tui", "rbackup.sh"), // 改名前的目录，保持兼容
-		filepath.Join(home, "rbackup", "rbackup.sh"),     // 更旧布局，保持兼容
-		filepath.Join(home, ".local", "bin", "rbackup"),
-		filepath.Join(home, ".local", "bin", "rbackup.sh"),
-	}
-	for _, c := range candidates {
-		if _, err := os.Stat(c); err == nil {
-			return c
-		}
-	}
-	if p, err := exec.LookPath("rbackup.sh"); err == nil {
+	if p, err := extractEmbeddedCLI(); err == nil {
 		return p
 	}
-	if p, err := exec.LookPath("rbackup"); err == nil {
+	if p, err := exec.LookPath("rbackup-cli"); err == nil {
 		return p
 	}
 	return ""
@@ -356,7 +409,7 @@ func findConfigPath() string {
 
 // Web 模式开关与选项（--web 相关参数；默认值见 web.go）。
 var (
-	webMode    bool
+	webMode    = detectMode(executableName()) == "web"
 	webOpts    = defaultWebOptions()
 	doctorMode bool
 )
@@ -376,18 +429,19 @@ func argValue(args []string, i *int, flag string) (string, error) {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `rbackup-ui %s —— rbackup.sh 的终端界面（默认）/ Web 界面（--web）
+	fmt.Fprintf(os.Stderr, `rbackup-tui / rbackup-web %s —— rbackup-cli 的终端界面（TUI）/ Web 界面
 
 用法:
-  rbackup-ui [全局选项]              启动 TUI
-  rbackup-ui --web [Web 选项]        启动 Web 界面（不启动 TUI）
+  rbackup-tui [全局选项]              启动 TUI（默认）
+  rbackup-web [Web 选项]              启动 Web 界面（不启动 TUI）
+  rbackup-tui --web [Web 选项]        同上（--web 兼容写法）
 
 说明:
   只要命令行里出现任一 --web-* 选项，就会自动启用 Web 模式（--web 可省略）。
 
 全局选项:
   -c, --config <文件>     配置文件路径
-  -s, --script <文件>     rbackup.sh 路径
+  -s, --script <文件>     rbackup-cli 路径
   --bash <文件>           指定 bash（默认自动探测；Windows 可指向 Git/MSYS2 的 bash.exe）
   --doctor                打印运行环境诊断（bash/rsync/ssh/路径）后退出
   -h, --help              显示本帮助
@@ -403,6 +457,8 @@ Web 选项:
   --web-audit-log <文件>        审计日志（默认 <日志目录>/web-audit.log，"-" 只写 stderr）
   --web-max-clients <n>         SSE 客户端上限（默认 8）
   --web-read-only               只读模式：禁止触发任务，只观察
+  --web-trust-proxy             信任反向代理头（X-Forwarded-Proto/Host/For；仅反代后启用）
+  --web-public-url <URL>        对外访问地址（如 https://backup.example.com；用于扫码链接/同源校验）
 
 登录/二次验证（可选）:
   --web-user <名称>             用户名（配合密码登录，默认 admin）
@@ -419,9 +475,12 @@ Web 选项:
 Web 界面内置：安全中心（绑定 2FA / 重新生成备份码 / 关闭 2FA）、手机扫码登录、
 中英文切换、亮/暗主题切换；未启用 2FA 时登录后会提示一键开启。
 
-环境变量: RBACKUP_WEB_TOKEN / RBACKUP_WEB_TOKEN_FILE / RBACKUP_WEB_ADDR
+环境变量: RBACKUP_WEB_TOKEN / RBACKUP_WEB_TOKEN_FILE / RBACKUP_WEB_ADDR /
+          RBACKUP_WEB_TRUST_PROXY（1/true/yes/on）/ RBACKUP_WEB_PUBLIC_URL
 安全默认: 监听非 loopback 地址必须 token + TLS，否则拒绝启动；
           仅当显式 --web-insecure-http 时才允许明文（内网/VPN 场景）。
+          反向代理场景请加 --web-trust-proxy，并在 HTTPS 终止的代理上传递
+          X-Forwarded-Proto/Host/For。
 `, Version)
 }
 
@@ -454,6 +513,14 @@ func parseCLI(args []string) (configPath, scriptPath string, err error) {
 	}
 	if v := os.Getenv("RBACKUP_WEB_TOTP_SECRET_FILE"); v != "" {
 		webOpts.TOTPSecretFile = v
+	}
+	if v := strings.ToLower(strings.TrimSpace(os.Getenv("RBACKUP_WEB_TRUST_PROXY"))); v != "" {
+		if v == "1" || v == "true" || v == "yes" || v == "on" {
+			webOpts.TrustProxy = true
+		}
+	}
+	if v := os.Getenv("RBACKUP_WEB_PUBLIC_URL"); v != "" {
+		webOpts.PublicURL = v
 	}
 
 	for i := 1; i < len(args); i++ {
@@ -523,6 +590,15 @@ func parseCLI(args []string) (configPath, scriptPath string, err error) {
 		case "--web-read-only":
 			webMode = true
 			webOpts.ReadOnly = true
+		case "--web-trust-proxy":
+			webMode = true
+			webOpts.TrustProxy = true
+		case "--web-public-url":
+			if v, err = argValue(args, &i, args[i]); err != nil {
+				return "", "", err
+			}
+			webMode = true
+			webOpts.PublicURL = v
 		case "--web-user":
 			if v, err = argValue(args, &i, args[i]); err != nil {
 				return "", "", err
@@ -627,7 +703,7 @@ func dirWritable(dir string) bool {
 	return true
 }
 
-// resolveLogDir 与 rbackup.sh 的 LOG_DIR 回退链保持一致，否则 TUI 会找不到 .stats：
+// resolveLogDir 与 rbackup-cli 的 LOG_DIR 回退链保持一致，否则 TUI 会找不到 .stats：
 //
 //	配置里的 LOG_DIR → 平台默认目录（Windows %LOCALAPPDATA%\rbackup-ui\Logs，
 //	其他 $XDG_STATE_HOME/rbackup-ui/log）→ <脚本同目录>/log（旧行为，最后兜底）
@@ -639,7 +715,7 @@ func resolveLogDir(cfgLogDir, scriptPath string) string {
 	if dirWritable(stateFallback) {
 		return stateFallback
 	}
-	// 改名兼容：旧版本 rbackup.sh 写的是 rbackup-tui/log，仍能读到旧 .stats
+	// 改名兼容：旧版本 rbackup-cli 写的是 rbackup-tui/log，仍能读到旧 .stats
 	if legacy := legacyAppLogDir(runtime.GOOS); dirWritable(legacy) {
 		return legacy
 	}
@@ -2301,8 +2377,8 @@ func (a *App) helpContent() string {
 	b.WriteString("\n")
 
 	b.WriteString("[yellow::b]─── 关于 ────────────────────────────────────────────[-:-:-]\n")
-	b.WriteString("  rbackup-ui 是 rbackup.sh 的 TUI 前端\n")
-	b.WriteString("  配置文件: 与 rbackup.sh 共用 config.ini\n")
+	b.WriteString("  rbackup-tui / rbackup-web 是 rbackup-cli 的前端（终端 / 网页）\n")
+	b.WriteString("  配置文件: 与 rbackup-cli 共用 config.ini\n")
 	b.WriteString("  日志目录: 由 config.ini 的 LOG_DIR 决定，默认跟随平台\n")
 	b.WriteString("            Linux: $XDG_STATE_HOME/rbackup-ui/log\n")
 	b.WriteString("            Windows: %LOCALAPPDATA%\\rbackup-ui\\Logs\n")
@@ -2409,19 +2485,15 @@ func main() {
 	}
 
 	if a.scriptPath == "" {
-		fmt.Fprintln(os.Stderr, "错误：找不到 rbackup.sh")
+		fmt.Fprintln(os.Stderr, "错误：找不到 rbackup-cli")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "请按以下方式之一指定：")
-		fmt.Fprintln(os.Stderr, "  1. 命令行: rbackup-ui -s /path/to/rbackup.sh")
-		fmt.Fprintln(os.Stderr, "  2. 环境变量: export RBACKUP_SCRIPT=/path/to/rbackup.sh")
+		fmt.Fprintln(os.Stderr, "  1. 命令行: rbackup-tui -s /path/to/rbackup-cli")
+		fmt.Fprintln(os.Stderr, "  2. 环境变量: export RBACKUP_SCRIPT=/path/to/rbackup-cli")
 		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "查找过的位置：")
-		fmt.Fprintln(os.Stderr, "  <二进制同目录>/rbackup.sh")
-		fmt.Fprintln(os.Stderr, "  $HOME/rbackup-ui/rbackup.sh")
-		fmt.Fprintln(os.Stderr, "  $HOME/rbackup/rbackup.sh")
-		fmt.Fprintln(os.Stderr, "  $HOME/.local/bin/rbackup")
-		fmt.Fprintln(os.Stderr, "  $HOME/.local/bin/rbackup.sh")
-		fmt.Fprintln(os.Stderr, "  PATH 中的 rbackup.sh / rbackup")
+		fmt.Fprintln(os.Stderr, "正常情况下无需指定：引擎内嵌在二进制中，首次运行自动释放到")
+		fmt.Fprintln(os.Stderr, "  <数据目录>/rbackup-ui/backend/rbackup-cli")
+		fmt.Fprintln(os.Stderr, "兜底查找：PATH 中的 rbackup-cli（也可用 -s 显式指定）")
 		os.Exit(1)
 	}
 

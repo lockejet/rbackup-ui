@@ -12,7 +12,8 @@
 #
 # 说明：
 #   - 下载官方 Release 的 rbackup-ui-<ver>-windows-amd64.zip，校验 SHA256 后解压安装；
-#   - 安装 exe + rbackup.sh + 配置样例到 InstallDir，配置骨架写到 %APPDATA%\rbackup-ui\config.ini；
+#   - 安装 rbackup-tui.exe / rbackup-web.exe / rbackup-cli + 配置样例到 InstallDir，
+#     配置骨架写到 %APPDATA%\rbackup-ui\config.ini；
 #   - -AddToPath 把 InstallDir 加入当前用户 PATH（幂等）；
 #   - -Uninstall 按安装清单删除程序，保留配置与日志；
 #   - -DryRun 只打印将要执行的动作。
@@ -151,13 +152,13 @@ try {
 
     $extract = Join-Path $Tmp "extract"
     Expand-Archive -Force -Path $zipPath -DestinationPath $extract
-    $exe = Get-ChildItem -Path $extract -Recurse -Filter "rbackup-ui.exe" | Select-Object -First 1
-    if (-not $exe) { Die "压缩包内找不到 rbackup-ui.exe" }
+    $exe = Get-ChildItem -Path $extract -Recurse -Filter "rbackup-tui.exe" | Select-Object -First 1
+    if (-not $exe) { Die "压缩包内找不到 rbackup-tui.exe（v2 起主程序拆分为 rbackup-tui / rbackup-web）" }
     $root = $exe.Directory.FullName
 
     if ($DryRun) {
-        Step "将安装 $exe 到 $InstallDir\rbackup-ui.exe"
-        Step "将复制 rbackup.sh / 配置样例到 $InstallDir"
+        Step "将安装 $exe 到 $InstallDir\rbackup-tui.exe（并生成 rbackup-web.exe）"
+        Step "将复制 rbackup-cli / 配置样例到 $InstallDir"
         Step "配置骨架: $env:APPDATA\rbackup-ui\config.ini（不存在才创建）"
         if ($AddToPath) { Step "将把 $InstallDir 加入用户 PATH" }
         exit 0
@@ -165,9 +166,33 @@ try {
 
     # ---------- 安装 ----------
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    Copy-Item -Force $exe.FullName (Join-Path $InstallDir "rbackup-ui.exe")
-    $installed = @(Join-Path $InstallDir "rbackup-ui.exe")
-    foreach ($name in @("rbackup.sh")) {
+    # 升级清理：v1 的 rbackup-ui.exe / rbackup.sh 不再使用
+    foreach ($legacy in @("rbackup-ui.exe", "rbackup.sh")) {
+        $p = Join-Path $InstallDir $legacy
+        if (Test-Path $p) { Remove-Item -Force $p }
+    }
+    foreach ($name in @("rbackup-tui.exe", "rbackup-web.exe", "rbackup-cli")) {
+        $p = Join-Path $InstallDir $name
+        if (Test-Path $p) { Remove-Item -Force $p }
+    }
+    Copy-Item -Force $exe.FullName (Join-Path $InstallDir "rbackup-tui.exe")
+    $installed = @(Join-Path $InstallDir "rbackup-tui.exe")
+
+    # rbackup-web.exe 与 rbackup-tui.exe 是同一实现：优先硬链接（同一 inode）
+    $webSrc = Join-Path $root "rbackup-web.exe"
+    $webDst = Join-Path $InstallDir "rbackup-web.exe"
+    if (Test-Path $webSrc) {
+        Copy-Item -Force $webSrc $webDst
+    } else {
+        try {
+            New-Item -ItemType HardLink -Path $webDst -Target (Join-Path $InstallDir "rbackup-tui.exe") | Out-Null
+        } catch {
+            Copy-Item -Force (Join-Path $InstallDir "rbackup-tui.exe") $webDst
+        }
+    }
+    $installed += $webDst
+
+    foreach ($name in @("rbackup-cli")) {
         $src = Join-Path $root $name
         if (Test-Path $src) {
             Copy-Item -Force $src (Join-Path $InstallDir $name)
@@ -236,12 +261,12 @@ try {
         Warn "未找到 bash：备份任务需要 Git for Windows 或 MSYS2 提供 bash"
         Warn "  安装 Git for Windows: https://git-scm.com/download/win"
         Warn "  或 MSYS2（并安装 rsync）: pacman -S rsync"
-        Warn "  装好后可运行: $InstallDir\rbackup-ui.exe --doctor 复检"
+        Warn "  装好后可运行: $InstallDir\rbackup-tui.exe --doctor 复检"
     } elseif ($bashIsWSL) {
         Warn "只找到 WSL 启动器 bash：$bash"
         Warn "  它不是 Git Bash/MSYS2，不能直接用于备份任务；请安装 Git for Windows 或 MSYS2"
         Warn "  已安装但不在常见路径？运行时可用 --bash 指定，例如："
-        Warn "  $InstallDir\rbackup-ui.exe --bash C:\msys64\usr\bin\bash.exe"
+        Warn "  $InstallDir\rbackup-tui.exe --bash C:\msys64\usr\bin\bash.exe"
     } else {
         Info "bash: $bash"
         if (Test-BashCommand $bash "rsync") {
@@ -258,10 +283,11 @@ try {
     }
 
     Write-Host ""
-    Info "安装完成：$InstallDir\rbackup-ui.exe（$Version）"
-    Info "自检:   $InstallDir\rbackup-ui.exe --doctor"
-    Info "Web:    $InstallDir\rbackup-ui.exe --web    然后浏览器打开 http://127.0.0.1:30031"
-    Info "TUI:    $InstallDir\rbackup-ui.exe"
+    Info "安装完成：$InstallDir\rbackup-tui.exe（$Version）"
+    Info "自检:   $InstallDir\rbackup-tui.exe --doctor"
+    Info "Web:    $InstallDir\rbackup-web.exe    然后浏览器打开 http://127.0.0.1:30031"
+    Info "TUI:    $InstallDir\rbackup-tui.exe"
+    Info "CLI:    $InstallDir\rbackup-cli"
     Info "卸载:   .\install.ps1 -Uninstall"
 } finally {
     if (Test-Path $Tmp) { Remove-Item -Recurse -Force $Tmp -ErrorAction SilentlyContinue }

@@ -6,7 +6,7 @@
 <rect x="21.5" y="6.5" width="75.0" height="16" fill="#0d1117"/>
 <text x="21.5" y="29.1" fill="#7ee787" textLength="75.0" lengthAdjust="spacingAndGlyphs">─ rbackup </text>
 <text x="21.5" y="50.1" fill="#8b949e" textLength="45.0" lengthAdjust="spacingAndGlyphs">脚本: </text>
-<text x="66.5" y="50.1" fill="#e6edf3" textLength="172.5" lengthAdjust="spacingAndGlyphs">~/.local/bin/rbackup.sh</text>
+<text x="66.5" y="50.1" fill="#e6edf3" textLength="172.5" lengthAdjust="spacingAndGlyphs">~/.local/bin/rbackup-cli</text>
 <text x="239.0" y="50.1" fill="#8b949e" textLength="67.5" lengthAdjust="spacingAndGlyphs">   配置: </text>
 <text x="306.5" y="50.1" fill="#e6edf3" textLength="240.0" lengthAdjust="spacingAndGlyphs">~/.config/rbackup-ui/config.ini</text>
 <text x="21.5" y="71.1" fill="#8b949e" textLength="45.0" lengthAdjust="spacingAndGlyphs">远端: </text>

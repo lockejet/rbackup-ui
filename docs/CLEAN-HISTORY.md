@@ -53,7 +53,7 @@ git log --all --pretty=format: --name-only | sed '/^$/d' | sort -u
 |---|---|
 | 私钥 / 证书 | 历史中**没有**（`PRIVATE KEY`、`BEGIN OPENSSH`、`id_rsa`、`.pem` 零命中） |
 | 口令 / Token | 历史中**没有**（`password=`、`passphrase`、`ghp_`、`AKIA` 零命中） |
-| 内网信息 | **有**：内网地址若干处，命中 `README.md`、`config.go`、`rbackup.sh`、`config2.ini.example` |
+| 内网信息 | **有**：内网地址若干处，命中 `README.md`、`config.go`、`rbackup-cli`、`config2.ini.example` |
 | 本机密钥路径 | **有**：`/home/<user>/.ssh/id_ed25519` 及其变体若干处（只有路径，无密钥内容） |
 | 真实配置 / 日志 / 私有脚本 | **没有**：`config-*.ini`、`rbackup.d/`、`log/`、`bin/`、`dist/`、`backup/`、`.staging/` **从未被提交** |
 | 二进制残留 | **有**：历史中的 `rbackup-ui`（约 4.93 MB，初始化提交引入、下一次提交删除） |
@@ -222,7 +222,7 @@ git push --mirror git@github.com:lockejet/rbackup-ui.git
      原始资产仍留底于 `~/rbackup-cleanup-2026-10-31/backups/rbackup-release-backup/`
    - 随后把 v1.1.6–v1.1.9 也重建，使二进制内嵌的 GitCommit 指向新历史：
      - v1.1.9 走 CI（`gh workflow run release.yml -f tag=v1.1.9`，39s 成功，SHA256SUMS 由 CI 重生成）
-     - v1.1.6–v1.1.8 的 tag 里 `rbackup.sh --help` 仍有旧 bug，CI 冒烟会失败，
+     - v1.1.6–v1.1.8 的 tag 里 `rbackup-cli --help` 仍有旧 bug，CI 冒烟会失败，
        改用本地 `-trimpath` 构建 + 重算 `SHA256SUMS`（保留原 install.sh 行）后覆盖上传，
        脚本 `~/rbackup-cleanup-2026-10-31/scripts/rebuild-1678.sh`；线上复核校验和通过、内嵌 commit 为新 SHA
    - 至此 **9 个 Release 的资产均构建自重写后的历史**

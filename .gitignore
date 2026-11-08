@@ -29,3 +29,4 @@ config-*.ini
 # 本地构建产物（go build . 会生成）
 /rbackup-ui
 /rbackup-tui
+/rbackup-web

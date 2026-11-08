@@ -40,7 +40,7 @@ raw_args = "--rbackup-task=alice --rbackup-config=/path/to/rbackup-ui/config.ini
 | `RBACKUP_GATE_DRYRUN` | `warn` | dry-run 时 `warn`(只告警放行) / `block`(拒绝) |
 | `RBACKUP_GATE_EXIT` | `40` | 门禁拒绝的退出码（rsync 官方码止于 35/255，不冲突） |
 
-## 2. 门禁语义（与 rbackup.sh 的 `remote_mount_check2` 完全一致）
+## 2. 门禁语义（与 rbackup-cli 的 `remote_mount_check2` 完全一致）
 
 判定用 `findmnt -rn -T <realpath> -o TARGET,FSTYPE`，**要求路径本身就是挂载点**：
 
@@ -105,4 +105,4 @@ rsync 启动之前。
    里的 `--delete` 绕过它的确认门禁。本包装器同样不解析 raw_args 里的破坏性开关。
 6. lazyrsync 没有 `--remove-source-files` 复选项、没有 rbackup 的
    `--backup --backup-dir=<时间戳>` 目录式备份、也不做远端父目录存在性检查
-   （rbackup.sh:836-863）；这些需要靠 `raw_args` 补齐或走 fork 路线。
+   （rbackup-cli:836-863）；这些需要靠 `raw_args` 补齐或走 fork 路线。

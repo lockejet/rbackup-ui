@@ -1,6 +1,6 @@
 package main
 
-// 运行环境诊断：`rbackup-ui --doctor`。
+// 运行环境诊断：`rbackup-tui --doctor`。
 // 重点服务 Windows（MSYS2/Git Bash）用户排查 bash/rsync/ssh 与路径问题。
 
 import (
@@ -40,7 +40,7 @@ func runDoctorCLI() int {
 	fmt.Println("\n路径:")
 	script := findScriptPath()
 	cfg := findConfigPath()
-	fmt.Printf("  rbackup.sh : %s\n", orDash(script))
+	fmt.Printf("  rbackup-cli : %s\n", orDash(script))
 	fmt.Printf("  config.ini : %s\n", cfg)
 	if _, err := os.Stat(cfg); err != nil {
 		fmt.Printf("               （不存在，运行后可按样例创建）\n")
@@ -63,6 +63,6 @@ func warnRuntimeDeps() {
 	if _, err := findBash(); err != nil {
 		fmt.Fprintf(os.Stderr, "警告: %v\n", err)
 		fmt.Fprintln(os.Stderr, "      备份任务将无法执行；界面本身仍可使用。")
-		fmt.Fprintln(os.Stderr, "      可运行 rbackup-ui --doctor 查看环境诊断。")
+		fmt.Fprintln(os.Stderr, "      可运行 rbackup-tui --doctor 查看环境诊断。")
 	}
 }

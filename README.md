@@ -1,10 +1,10 @@
 # rbackup-ui
 
-rbackup.sh 的终端用户界面（TUI），用于管理和执行多任务 rsync 远程备份。
+rbackup-cli 的终端用户界面（TUI），用于管理和执行多任务 rsync 远程备份。
 
 - 语言: Go
 - TUI 框架: tview + tcell
-- 后端: rbackup.sh
+- 后端: rbackup-cli
 - 平台: Linux、Windows (MSYS2)
 
 ---
@@ -95,7 +95,7 @@ rbackup.sh 的终端用户界面（TUI），用于管理和执行多任务 rsync
   - [按 F1 或 ? 后帮助浮层出现但按键无响应？](#按-f1-或--后帮助浮层出现但按键无响应)
   - [Windows 下按键重复触发？](#windows-下按键重复触发)
   - [Windows 下 ESC 无法退出？](#windows-下-esc-无法退出)
-  - [Linux 下 rbackup-ui 找不到 bash？](#linux-下-rbackup-ui-找不到-bash)
+  - [Linux 下 rbackup-tui 找不到 bash？](#linux-下-rbackup-tui-找不到-bash)
   - [rsync 输出没显示？](#rsync-输出没显示)
   - [日志目录不可写？](#日志目录不可写)
   - [如何只做挂载检查？](#如何只做挂载检查)
@@ -148,7 +148,7 @@ rbackup.sh 的终端用户界面（TUI），用于管理和执行多任务 rsync
 
 ```text
 ┌─ rbackup ─────────────────────────────────────────────────────────────────────────────┐
-│脚本: ~/.local/bin/rbackup.sh   配置: ~/.config/rbackup-ui/config.ini                  │
+│脚本: ~/.local/bin/rbackup-cli   配置: ~/.config/rbackup-ui/config.ini                  │
 │远端: admin@example.com:22   策略: skip（门禁失败时跳过）                               │
 │日志: ~/.local/state/rbackup-ui/log/20260928_1922.log                                  │
 │统计: ~/.local/state/rbackup-ui/log/20260928_1922.stats                                │
@@ -239,8 +239,9 @@ rbackup.sh 的终端用户界面（TUI），用于管理和执行多任务 rsync
 
 | | 用户级 | 系统级 |
 |---|---|---|
-| 主程序 | `~/.local/bin/rbackup-ui` | `/usr/local/bin/rbackup-ui` |
-| 后端脚本 | `~/.local/bin/rbackup.sh` | `/usr/local/bin/rbackup.sh` |
+| TUI 程序 | `~/.local/bin/rbackup-tui` | `/usr/local/bin/rbackup-tui` |
+| Web 程序 | `~/.local/bin/rbackup-web`（与 TUI 同一文件，硬链接） | `/usr/local/bin/rbackup-web` |
+| 后端脚本 | `~/.local/bin/rbackup-cli` | `/usr/local/bin/rbackup-cli` |
 | 配置 | `~/.config/rbackup-ui/config.ini` | 仍按调用 sudo 的那个用户：`~/.config/rbackup-ui/config.ini` |
 | 日志 | `LOG_DIR` 可覆盖；默认 `$XDG_STATE_HOME/rbackup-ui/log`（Windows `%LOCALAPPDATA%\rbackup-ui\Logs`） | 同左 |
 | 样例 / 文档 | `~/.local/share/rbackup-ui/` | `/usr/local/share/rbackup-ui/` |
@@ -288,8 +289,9 @@ Windows（MSYS2 / Git Bash）下用户级安装到 `~/.local/bin`；`--system` �
 从 GitHub Releases 下载对应平台的压缩包，解压后目录结构：
 
     rbackup-ui-linux-amd64/
-    ├── rbackup-ui
-    ├── rbackup.sh
+    ├── rbackup-tui
+    ├── rbackup-web        # 与 rbackup-tui 同一 inode（硬链接）
+    ├── rbackup-cli
     ├── config1.ini.example
     ├── config2.ini.example
     ├── README.md
@@ -299,15 +301,15 @@ Windows（MSYS2 / Git Bash）下用户级安装到 `~/.local/bin`；`--system` �
 
     cp config2.ini.example config2.ini
     vim config2.ini
-    ./rbackup-ui -c config2.ini -s rbackup.sh
+    ./rbackup-tui -c config2.ini -s rbackup-cli
 
-`rbackup.sh` 与二进制同目录时，`-s` 可以省略。
+`rbackup-cli` 与二进制同目录时，`-s` 可以省略。
 
 ---
 
 ## 配置
 
-rbackup-ui 与 rbackup.sh 共用 config.ini，格式一致。
+rbackup-tui / rbackup-web 与 rbackup-cli 共用 config.ini，格式一致。
 
 ### 全局配置
 
@@ -555,7 +557,7 @@ rsync 只允许 `--chown` 出现一次。可以放在：
     cp config1.ini.example config1.ini
     vim config1.ini
 
-    rbackup-ui -c config1.ini -s rbackup.sh
+    rbackup-tui -c config1.ini -s rbackup-cli
 
 ---
 
@@ -563,116 +565,21 @@ rsync 只允许 `--chown` 出现一次。可以放在：
 
 ### 启动
 
-    # 默认读取 $XDG_CONFIG_HOME/rbackup-ui/config.ini（即 ~/.config/rbackup-ui/config.ini）
-    rbackup-ui
-
-    # 指定配置
-    rbackup-ui -c ~/rbackup-ui/config-lnas.ini
-
-    # 指定脚本
-    rbackup-ui -c ~/rbackup-ui/config-lnas.ini -s ~/.local/bin/rbackup.sh
-
-### 命令行参数
-
-| 参数 | 说明 |
-|---|---|
-| -c, --config | 配置文件路径 |
-| -s, --script | rbackup.sh 路径 |
-| -h, --help | 显示帮助（含 Web 模式参数） |
-| --web | 启动 Web 界面而非 TUI，见 [Web UI](#web-ui可选) |
-
-### 脚本路径查找顺序
-
-1. 命令行 `-s` 指定
-2. 环境变量 `RBACKUP_SCRIPT`
-3. 二进制同目录（安装器与发布包的场景：`rbackup.sh` 与主程序并排）
-4. `$HOME/rbackup-ui/rbackup.sh`
-5. `$HOME/rbackup/rbackup.sh`（旧布局，保持兼容）
-6. `$HOME/.local/bin/rbackup`
-7. `$HOME/.local/bin/rbackup.sh`
-8. `PATH` 中的 `rbackup.sh` / `rbackup`
-
-配置路径查找顺序：`-c` / `--config` → `RBACKUP_CONFIG` →
-`$XDG_CONFIG_HOME/rbackup-ui/config.ini`（默认 `~/.config/rbackup-ui/config.ini`）→
-`$HOME/rbackup-ui/config.ini`（过渡兼容）→ `$HOME/rbackup/config.ini`（更旧布局）。
-
-全找不到时报错退出，提示用 `-s` 或 `RBACKUP_SCRIPT` 指定。
-
-### 典型流程
-
-1. 启动 TUI
-2. 空格选择要备份的任务
-3. Enter 运行
-4. 如有危险操作，逐个确认（y/n/a/s）
-5. 观察实时日志（焦点自动切到交互区）
-6. 完成后按 Tab 切换焦点查看各区
-
----
-
-## Windows（原生：Git Bash / MSYS2）
-
-TUI 与 Web UI 都是同一个单二进制，Windows 上可原生运行；备份任务由 bash 执行
-（Git for Windows 或 MSYS2 提供 bash，rsync 需单独安装）。
-
-```powershell
-# 1) 依赖：Git for Windows（自带 bash/ssh）+ MSYS2 的 rsync
-#    MSYS2 中执行： pacman -S rsync
-#    然后把 C:\msys64\usr\bin 加入 PATH（或复制 rsync.exe 到 PATH 中）
-
-# 2) 安装（PowerShell；先下载再执行，避免 PS 5.1 管道编码问题）
-irm https://github.com/lockejet/rbackup-ui/releases/latest/download/install.ps1 -OutFile install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1
-# 可选参数：-AddToPath  -Version latest  -InstallDir DIR  -DryRun  -Uninstall
-# 注意：不要用 `irm ... | iex`——PS 5.1 会把没有 charset 的下载内容按 Latin-1 解码，中文提示乱码。
-
-# 3) 自检：bash / rsync / ssh / 配置 / 脚本 / 日志路径
-rbackup-ui.exe --doctor
-
-# 4) 运行
-rbackup-ui.exe                                    # TUI（Windows Terminal / MSYS2 均可）
-rbackup-ui.exe --web                              # Web UI → http://127.0.0.1:30031
-```
-
-- 默认路径：配置 `%APPDATA%\rbackup-ui\config.ini`（兼容 `%USERPROFILE%\.config\rbackup-ui\`）；
-  日志 `%LOCALAPPDATA%\rbackup-ui\Logs`。
-- 找不到 bash 时可用 `--bash "C:\Program Files\Git\bin\bash.exe"` 或环境变量 `RBACKUP_BASH` 指定；
-  程序会把传给 bash 的 Windows 路径自动转换成 MSYS2 的 `/c/...` 形式。
-- **不要用 `C:\Windows\System32\bash.exe`**：那是 WSL 的启动器，不是 Git Bash/MSYS2；
-  程序会自动跳过它并优先使用 Git for Windows / MSYS2 的 bash（`--doctor` 会指出）。
-- 中文控制台：程序启动时会把 Windows 控制台输出代码页切到 UTF-8；若仍有乱码，
-  在 PowerShell 里执行 `chcp 65001` 后再运行。
-- 局域网/手机访问：`--web-addr 0.0.0.0:30031`（仍需 token+TLS 或内网 `--web-insecure-http`），
-  并在 Windows 防火墙放行该端口；手机登录二维码使用你当前访问 Web 的地址生成。
-- 开机自启：用「任务计划程序」在登录时运行 `rbackup-ui.exe --web ...`。
-- **WSL2 备选**：数据/密钥都在 WSL 里时，直接在 WSL 内运行 Linux 版最省事；
-  Windows 浏览器用 `http://localhost:30031`，局域网访问需做 WSL 端口转发并放行防火墙。
-
-## Web UI（可选）
-
-同一个二进制可以用 `--web` 启动内嵌 Web 界面，浏览器/手机访问；TUI 与 Web 互斥启动。
-完整设计见 [docs/WEBUI-DESIGN.md](docs/WEBUI-DESIGN.md)。
-
-> **本机端口规划**：`rbackup-ui` 默认监听 `127.0.0.1:30031`；
-> 配套的 `gocryptfs-ui` 使用 `127.0.0.1:30032`。两者都只绑 loopback，
-> 由本机反代/端口映射对外（如 8031 / 44331 → 30031）。
-
-### 启动
-
     # 本机使用（默认只监听 127.0.0.1:30031）
-    rbackup-ui --web
+    rbackup-web
 
-    # 只要出现任一 --web-* 选项就会自动启用 Web 模式（--web 可省略）
-    rbackup-ui --web-token-file /etc/rbackup-ui/web.token
+    # 指定 token 文件（避免 token 出现在 ps 中）
+    rbackup-web --web-token-file /etc/rbackup-ui/web.token
 
     # 常驻服务（推荐：绑 loopback，由 Tailscale/WireGuard 或反代对外）
     openssl rand -base64 32 > /etc/rbackup-ui/web.token && chmod 600 /etc/rbackup-ui/web.token
-    rbackup-ui --web --web-token-file /etc/rbackup-ui/web.token
+    rbackup-web --web-token-file /etc/rbackup-ui/web.token
 
 ### 参数
 
 | 参数 | 说明 |
 |---|---|
-| `--web` | 启用 Web 模式（与 TUI 互斥） |
+| `--web` | 兼容写法：强制 Web 模式（用 `rbackup-web` 入口启动时无需该参数） |
 | `--web-addr` | 监听地址，默认 `127.0.0.1:30031` |
 | `--web-token-file` | token 文件（推荐，避免出现在 `ps`） |
 | `--web-token` | 直接指定 token（不推荐） |
@@ -681,13 +588,15 @@ rbackup-ui.exe --web                              # Web UI → http://127.0.0.1:
 | `--web-audit-log` | 审计日志文件，默认 `<日志目录>/web-audit.log`；`-` 只写 stderr |
 | `--web-max-clients` | SSE 客户端上限，默认 8 |
 | `--web-read-only` | 只读模式：只观察，禁止触发任务 |
+| `--web-trust-proxy` | 信任反向代理头（`X-Forwarded-Proto/Host/For`），反代后必开 |
+| `--web-public-url` | 对外基址（如 `https://backup.example.com`）；不设则按请求头自适应 |
 | `--web-user` | 用户名（配合密码登录，默认 `admin`） |
 | `--web-password-hash-file` | 密码哈希文件（用 `--web-hash-password` 生成） |
 | `--web-2fa` | `off`（默认）/ `totp`：2FA 策略；认证器在 Web「安全」页扫码绑定（secret 文件可省略） |
 | `--web-totp-secret-file` | TOTP secret 文件（可省略；Web 安全页绑定后自动生成） |
 
-环境变量：`RBACKUP_WEB_TOKEN` / `RBACKUP_WEB_TOKEN_FILE` / `RBACKUP_WEB_ADDR`
-（命令行优先）。
+环境变量：`RBACKUP_WEB_TOKEN` / `RBACKUP_WEB_TOKEN_FILE` / `RBACKUP_WEB_ADDR` /
+`RBACKUP_WEB_TRUST_PROXY`（1/true/yes/on）/ `RBACKUP_WEB_PUBLIC_URL`（命令行优先）。
 
 ### 登录方式（token / 用户名密码 / TOTP 二次验证）
 
@@ -695,22 +604,22 @@ rbackup-ui.exe --web                              # Web UI → http://127.0.0.1:
 
 ```bash
 # ① 生成密码哈希（交互输入密码，不回显）
-rbackup-ui --web-hash-password > ~/.config/rbackup-ui/web.passwd
+rbackup-web --web-hash-password > ~/.config/rbackup-ui/web.passwd
 chmod 600 ~/.config/rbackup-ui/web.passwd
 
 # ② 生成 TOTP secret；终端里会直接显示二维码，手机 Authenticator 扫码即可
 #    注意：这会生成新 secret；已录入过认证器就不要重跑，改用 --web-show-totp-qr
-rbackup-ui --web-gen-totp
+rbackup-web --web-gen-totp
 
 # 如需把 secret 存文件（二维码在 stderr，不会污染 stdout）：
-rbackup-ui --web-gen-totp 2>/dev/null | sed -n '2p' > ~/.config/rbackup-ui/web.totp
+rbackup-web --web-gen-totp 2>/dev/null | sed -n '2p' > ~/.config/rbackup-ui/web.totp
 chmod 600 ~/.config/rbackup-ui/web.totp
 
 # 已经录入过认证器、只是想再显示一次二维码（不会轮换 secret）：
-rbackup-ui --web-show-totp-qr
+rbackup-web --web-show-totp-qr
 
 # ③ 启动：默认监听 127.0.0.1:30031，密码 + TOTP，token 作为恢复方式
-rbackup-ui \
+rbackup-web \
   --web-password-hash-file ~/.config/rbackup-ui/web.passwd \
   --web-2fa totp --web-totp-secret-file ~/.config/rbackup-ui/web.totp \
   --web-token-file ~/.config/rbackup-ui/web.token
@@ -780,7 +689,7 @@ VPN 已把流量加密，可直接绑 VPN 地址 + token（不需要额外 TLS�
     chmod 600 ~/.config/rbackup-ui/web.token
 
     # 想直连 VPN 地址时，显式指定 --web-addr（默认只绑 loopback）
-    rbackup-ui --web-addr 10.14.10.5:30031 \
+    rbackup-web --web-addr 10.14.10.5:30031 \
       --web-token-file ~/.config/rbackup-ui/web.token \
       --web-insecure-http
 
@@ -789,20 +698,54 @@ VPN 已把流量加密，可直接绑 VPN 地址 + token（不需要额外 TLS�
 
 **方式三：反代 + TLS（有域名/证书时）**
 
-Nginx/Caddy 反代到 `127.0.0.1:30031`，SSE 需关闭缓冲：
+Nginx/Caddy 反代到 `127.0.0.1:30031`，SSE 需关闭缓冲；**应用必须加
+`--web-trust-proxy`**，否则扫码链接会生成 `http://`、cookie 不带 `Secure`、
+限流与审计看到的都是代理 IP（127.0.0.1）：
 
     # Caddy
     rbackup.example.com {
         reverse_proxy 127.0.0.1:30031 {
             flush_interval -1
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Forwarded-Host {host}
         }
     }
+
+    # Nginx（IP:端口 与 域名两个入口可共用同一 upstream）
+    server {
+        listen 443 ssl;
+        http2 on;
+        server_name backup.example.com;
+        ssl_certificate     /etc/nginx/ssl/example.crt;
+        ssl_certificate_key /etc/nginx/ssl/example.key;
+        location / {
+            proxy_pass http://127.0.0.1:30031;
+            proxy_http_version 1.1;
+            proxy_set_header Host              $http_host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_set_header X-Forwarded-Host  $host;
+            proxy_set_header Upgrade           $http_upgrade;
+            proxy_set_header Connection        "";
+            proxy_buffering off;          # SSE 必须关闭缓冲
+            proxy_read_timeout 3600s;
+        }
+    }
+
+    启动：rbackup-web --web-trust-proxy --web-token-file ~/.config/rbackup-ui/web.token
+
+- 不设 `--web-public-url` 时，扫码链接/同源校验按每个请求的
+  `X-Forwarded-Proto` + `X-Forwarded-Host` 自适应：域名入口生成
+  `https://域名`，`IP:端口` 入口生成 `https://IP:端口`，两种访问方式都正确。
+- 只有确定"只从一个固定地址访问"时才设 `--web-public-url`（多入口场景反而会指错）。
+- 代理必须**覆盖**这些头（不要透传客户端伪造值），否则信任了错误来源。
 
 **方式四：内网直连自签 TLS**
 
     openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
       -keyout web.key -out web.crt -subj "/CN=10.14.10.5"
-    rbackup-ui --web-addr 10.14.10.5:8443 \
+    rbackup-web --web-addr 10.14.10.5:8443 \
       --web-tls-cert web.crt --web-tls-key web.key \
       --web-token-file ~/.config/rbackup-ui/web.token
 
@@ -957,7 +900,7 @@ systemd 常驻单元示例见 [docs/WEBUI-DESIGN.md](docs/WEBUI-DESIGN.md) 第 8
 
     /srv/st1000dm -> /srv/dev-disk-by-id-ata-xxx-part1
 
-直接比较字符串会误判"未挂载"。rbackup.sh 在远端一次 SSH 完成：
+直接比较字符串会误判"未挂载"。rbackup-cli 在远端一次 SSH 完成：
 
 1. `realpath -m <mount_point>` 解析软链接
 2. `findmnt -T <真实路径>` 查询挂载信息
@@ -983,13 +926,13 @@ systemd 常驻单元示例见 [docs/WEBUI-DESIGN.md](docs/WEBUI-DESIGN.md) 第 8
 2. 平台默认目录：
    - Linux / macOS：`$XDG_STATE_HOME/rbackup-ui/log`，未设置时为 `~/.local/state/rbackup-ui/log`
    - Windows：`%LOCALAPPDATA%\rbackup-ui\Logs`
-3. `<rbackup.sh 所在目录>/log`（旧行为，最后兜底）
+3. `<rbackup-cli 所在目录>/log`（旧行为，最后兜底）
 
 文件名带时分（YYYYMMDD_HHMM），同一分钟内多次运行会覆盖同名文件。
 
 想确认平台默认目录（不读配置）：
 
-    rbackup.sh --print-log-dir
+    rbackup-cli --print-log-dir
 
 ### 统计文件格式
 
@@ -1053,8 +996,8 @@ key=value 纯文本，分组结构。全部为展示字段（英文单位），�
 
 ### 日志与 TUI 的关系
 
-- TUI 只显示 `rbackup.sh` 的实时输出，不解析日志文件
-- 统计通过 `rbackup.sh` 输出的单行 `[STATS]` 协议传递给 TUI
+- TUI 只显示 `rbackup-cli` 的实时输出，不解析日志文件
+- 统计通过 `rbackup-cli` 输出的单行 `[STATS]` 协议传递给 TUI
 - TUI 拦截 `[STATS]` 行，不显示在日志区
 - `[STATS]` 行仍会写入日志文件，供命令行工具读取
 
@@ -1073,11 +1016,11 @@ TUI 里每个任务完成后显示 **2 行**详情：
       传输: 文件: 16/926  总大小: 52.50M  数据: 发送 58.25K + 接收 660B  速率: 305.60 KB/s  列表: 6s  执行: 1min36s
     --------------------------------------------------------------------------------
 
-rbackup.sh 日志文件中的对应输出格式一致（字段顺序：文件 → 总大小 → 数据 → 速率 → 列表 → 执行）。
+rbackup-cli 日志文件中的对应输出格式一致（字段顺序：文件 → 总大小 → 数据 → 速率 → 列表 → 执行）。
 
 ### 分隔线
 
-- **rbackup.sh 输出**：80 个短横线（`-`），用于脚本启动、任务边界、rsync 阶段分隔
+- **rbackup-cli 输出**：80 个短横线（`-`），用于脚本启动、任务边界、rsync 阶段分隔
 - **TUI 危险确认**：80 个短横线，上下包裹确认详情
 - **TUI 汇总**：80 个短横线，上下包裹汇总块
 
@@ -1096,7 +1039,7 @@ rbackup.sh 日志文件中的对应输出格式一致（字段顺序：文件 �
 
 ### 挂载检查误报"未挂载"
 
-**现象**：手动执行 `findmnt -T <path>` 返回正确结果，但 rbackup.sh 报"未挂载"。
+**现象**：手动执行 `findmnt -T <path>` 返回正确结果，但 rbackup-cli 报"未挂载"。
 
 **原因**：路径中含软链接，`findmnt` 返回真实路径，与配置的 mount_point 字符串不相等。
 
@@ -1108,7 +1051,7 @@ rbackup.sh 日志文件中的对应输出格式一致（字段顺序：文件 �
 
 如果 TARGET 和 realpath 输出不同，说明是软链接问题。
 
-**解决**：rbackup.sh 已内置 realpath 解析，无需额外处理。如果仍报错，检查 rbackup.sh 是否为最新版本。
+**解决**：rbackup-cli 已内置 realpath 解析，无需额外处理。如果仍报错，检查 rbackup-cli 是否为最新版本。
 
 ### rsync 报"failed to set times"
 
@@ -1137,7 +1080,7 @@ rbackup.sh 日志文件中的对应输出格式一致（字段顺序：文件 �
 
     rsync: [sender] send_files failed to open "...": Permission denied (13)
 
-**原因**：运行 rbackup.sh 的用户没有权限读取源端文件。
+**原因**：运行 rbackup-cli 的用户没有权限读取源端文件。
 
 **解决**：
 
@@ -1179,7 +1122,7 @@ rbackup.sh 日志文件中的对应输出格式一致（字段顺序：文件 �
 ### 产物位置
 
     bin/
-    ├── windows/rbackup-ui.exe
+    ├── windows/rbackup-tui.exe
     └── linux/rbackup-ui
 
 ### 版本注入
@@ -1211,14 +1154,15 @@ Makefile 会自动注入版本：
 每个压缩包内含：
 
     rbackup-ui-<平台>/
-    ├── rbackup-ui (或 .exe)
-    ├── rbackup.sh
+    ├── rbackup-tui (或 .exe)
+    ├── rbackup-web (或 .exe；与 TUI 同一文件)
+    ├── rbackup-cli
     ├── config1.ini.example
     ├── config2.ini.example
     ├── README.md
     └── LICENSE
 
-顶层有子目录，不会污染用户当前目录。`rbackup.sh` 与二进制同目录，用户运行时自动找到。
+顶层有子目录，不会污染用户当前目录。`rbackup-cli` 与二进制同目录，用户运行时自动找到。
 
 ### 发布到 GitHub Release
 
@@ -1293,7 +1237,7 @@ Makefile 会自动注入版本：
 | 变量 | 说明 | 默认 |
 |---|---|---|
 | RBACKUP_CONFIG | 配置文件路径 | $HOME/rbackup/config.ini |
-| RBACKUP_SCRIPT | rbackup.sh 路径 | 自动查找 |
+| RBACKUP_SCRIPT | rbackup-cli 路径 | 自动查找 |
 | RBACKUP_BASH | bash 可执行文件路径 | 自动查找 |
 | RBACKUP_DEBUG_KEYS | 设为 1 输出按键调试日志 | — |
 
@@ -1317,7 +1261,7 @@ MSYS2 mintty 会重复分发事件。代码内置 50ms 去重。
 
 MSYS2 + winpty 会吞掉 ESC。使用 q 或 Ctrl+C。
 
-### Linux 下 rbackup-ui 找不到 bash？
+### Linux 下 rbackup-tui 找不到 bash？
 
 设置 RBACKUP_BASH=/bin/bash，或在 config.ini 中确认 SSH_KEY 等路径正确。
 
@@ -1328,11 +1272,11 @@ MSYS2 + winpty 会吞掉 ESC。使用 q 或 Ctrl+C。
 ### 日志目录不可写？
 
 按 `LOG_DIR` → 平台默认目录 → 脚本同目录 `log/` 的顺序回退。先用
-`rbackup.sh --print-log-dir` 看平台默认目录在哪，再检查权限。
+`rbackup-cli --print-log-dir` 看平台默认目录在哪，再检查权限。
 
 ### 如何只做挂载检查？
 
-命令行 rbackup.sh --check-mount；TUI 中按 m。
+命令行 rbackup-cli --check-mount；TUI 中按 m。
 
 ### 危险确认时怎么快速跳过全部？
 
@@ -1377,8 +1321,8 @@ MSYS2 + winpty 会吞掉 ESC。使用 q 或 Ctrl+C。
     rbackup-ui/
     ├── main.go                  TUI 主程序
     ├── config.go                配置解析
-    ├── runner.go                执行 rbackup.sh
-    ├── rbackup.sh               备份核心脚本
+    ├── runner.go                执行 rbackup-cli
+    ├── rbackup-cli               备份核心脚本
     ├── install.sh               懒人模式安装器（也作为 Release 资产发布）
     ├── go.mod
     ├── go.sum

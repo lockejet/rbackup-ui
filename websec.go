@@ -15,7 +15,6 @@ import (
 	"crypto/subtle"
 	"encoding/base32"
 	"encoding/hex"
-	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -295,7 +294,7 @@ func (s *webServer) handle2FASetupConfirm(w http.ResponseWriter, r *http.Request
 		jsonErr(w, http.StatusBadRequest, "invalid_state", "当前状态不允许设置 2FA")
 		return
 	}
-	ip := clientIP(r)
+	ip := s.clientIP(r)
 	if !s.limiter.allow(ip) {
 		jsonErr(w, http.StatusTooManyRequests, "rate_limited", "尝试过于频繁，请稍后再试")
 		return
@@ -353,7 +352,7 @@ func (s *webServer) handle2FABackupCodes(w http.ResponseWriter, r *http.Request)
 		jsonErr(w, http.StatusBadRequest, "2fa_disabled", "尚未启用 2FA")
 		return
 	}
-	ip := clientIP(r)
+	ip := s.clientIP(r)
 	if !s.limiter.allow(ip) {
 		jsonErr(w, http.StatusTooManyRequests, "rate_limited", "尝试过于频繁，请稍后再试")
 		return
@@ -392,7 +391,7 @@ func (s *webServer) handle2FADisable(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "2fa_disabled", "尚未启用 2FA")
 		return
 	}
-	ip := clientIP(r)
+	ip := s.clientIP(r)
 	if !s.limiter.allow(ip) {
 		jsonErr(w, http.StatusTooManyRequests, "rate_limited", "尝试过于频繁，请稍后再试")
 		return
@@ -455,9 +454,11 @@ func (s *webServer) prunePhoneLinksLocked(now time.Time) {
 	}
 }
 
-// buildPhoneHost 返回手机可访问的 host（来自请求 Host；loopback 时自动换成局域网 IP）。
-func buildPhoneHost(r *http.Request) string {
-	host := r.Host
+// buildPhoneHost 返回手机可访问的 host 部分（可能带端口）。
+// loopback/通配监听时换成局域网 IPv4（手机扫码不能用 127.0.0.1），端口缺省时
+// 按 scheme 补 80/443；域名、私网 IP、反代传入的 Host 原样保留（不补默认端口，
+// 避免把 https://域名 生成成 https://域名:443 或错误的 :80）。
+func buildPhoneHost(host, scheme string) string {
 	hostname, port, err := net.SplitHostPort(host)
 	if err != nil {
 		hostname, port = host, ""
@@ -466,16 +467,19 @@ func buildPhoneHost(r *http.Request) string {
 		if ip := lanIPv4(); ip != "" {
 			hostname = ip
 		}
+		if port == "" {
+			if scheme == "https" {
+				port = "443"
+			} else {
+				port = "80"
+			}
+		}
 	}
 	if strings.Contains(hostname, ":") && !strings.HasPrefix(hostname, "[") {
 		hostname = "[" + hostname + "]"
 	}
 	if port == "" {
-		if r.TLS != nil {
-			port = "443"
-		} else {
-			port = "80"
-		}
+		return hostname
 	}
 	return hostname + ":" + port
 }
@@ -531,12 +535,15 @@ func (s *webServer) handlePhoneLink(w http.ResponseWriter, r *http.Request) {
 	s.phoneLinks[hashPhoneToken(tok)] = &phoneLink{expires: now.Add(phoneLinkTTL)}
 	s.phoneMu.Unlock()
 
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
+	// 生成手机可打开的链接：
+	// - 配置了 --web-public-url：直接用它（多入口时可固定到公网域名）；
+	// - 否则按当前入口推导 scheme/host，loopback 时自动换成局域网 IP。
+	base := s.publicBase(r)
+	if s.opts.PublicURL == "" {
+		base = s.requestScheme(r) + "://" + buildPhoneHost(s.effectiveHost(r), s.requestScheme(r))
 	}
-	url := fmt.Sprintf("%s://%s/#t=%s", scheme, buildPhoneHost(r), tok)
-	s.audit.log("phone_link.create", clientIP(r), r.UserAgent(), nil)
+	url := base + "/#t=" + tok
+	s.audit.log("phone_link.create", s.clientIP(r), r.UserAgent(), nil)
 	jsonWrite(w, http.StatusOK, map[string]any{
 		"url":       url,
 		"expiresIn": int(phoneLinkTTL.Seconds()),
@@ -549,11 +556,11 @@ func (s *webServer) handlePhoneSession(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusMethodNotAllowed, "method", "不支持的方法")
 		return
 	}
-	if !sameOrigin(r) {
+	if !s.sameOrigin(r) {
 		jsonErr(w, http.StatusForbidden, "csrf", "请求来源不被允许")
 		return
 	}
-	ip := clientIP(r)
+	ip := s.clientIP(r)
 	if !s.limiter.allow(ip) {
 		jsonErr(w, http.StatusTooManyRequests, "rate_limited", "尝试过于频繁，请稍后再试")
 		return
